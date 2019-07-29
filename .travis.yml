@@ -10,7 +10,9 @@ install:
   - python -m pip install -U pip
   - python -m pip install -e .
   - python -m pip install flake8 pytest
+  - python -m pip install keras
+  - python -m pip install scikit-learn
 # command to run tests
 script:
   - pytest vae_oversampler
-  - flake8 VAEOversampler.py
+  - flake8 vae_oversampler
