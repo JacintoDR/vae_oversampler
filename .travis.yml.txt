@@ -13,4 +13,4 @@ install:
 # command to run tests
 script:
   - pytest vae_oversampler
-  - flake8 vae_oversampler
+  - flake8 VAEOversampler.py
