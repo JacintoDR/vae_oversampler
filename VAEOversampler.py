@@ -12,6 +12,9 @@ import numpy as np
 
 #%%
 class VAEOversampler: 
+    """
+    Class for variational autoencoder oversampling of a dataset
+    """
 
     def __init__(self,epochs=10,intermediate_dim=12,
                  weights=None, batch_size=64,
@@ -45,7 +48,8 @@ class VAEOversampler:
     
     def build_train(self, x_train, x_test = None,
                                 *args,**kwargs):
-        """ builds a variational autoencoder using Keras
+        """ 
+        Builds a variational autoencoder using Keras
             and then compiles and trains it
         
         #Arguments
@@ -107,8 +111,10 @@ class VAEOversampler:
         return
         
     def fit(self, Xtrain, ytrain, validation_data=None, **vae_kwargs):
-        """ fits a standard scaler to the training data
-        then trains a variational autoencoder on the training data
+        """ 
+        Fits a standard scaler to the training data then trains sampler
+        
+        trains a variational autoencoder on the training data
         """
         self.ss = SS()
         self.ss.fit(Xtrain[ytrain==self.minority_class_id])
@@ -121,9 +127,19 @@ class VAEOversampler:
         return
     
     def fit_resample(self,Xtrain,ytrain,validation_data=None,**vae_kwargs):
-        """ fits a standard scaler to the training data
-        then trains a variational autoencoder on the training data
-        finally returns balanced resampled data
+        """
+        Fits a vae oversampler and returns resampled dataset
+        
+        Arguments:
+            Xtrain: training data
+            ytrain: training labels
+            validation_data = (Xtest,ytest) 
+                optional
+            variational autoencoder kwargs: passed to keras
+        
+        Returns:
+            Xres,yres: resampled data and labels.
+            attempts to balance the dataset to 50% minority class
         """
         if validation_data is not None:
             Xtest,ytest = validation_data
@@ -143,7 +159,7 @@ class VAEOversampler:
             self.build_train(X,x_test = x_test,**vae_kwargs)
         else:
             self.build_train(X,**vae_kwargs)
-        z_sample = np.random.normal(0,1,num_samples_to_generate)
+        z_sample = np.random.normal(0,1,(num_samples_to_generate,self.latent_dim))
         outputs = self.decoder.predict(z_sample)
         if self.rescale:
             oversampled_X = self.ss.inverse_transform(outputs)
