@@ -111,20 +111,36 @@ class VAEOversampler:
         return
         
     def fit(self, Xtrain, ytrain, validation_data=None, **vae_kwargs):
-        """ 
-        Fits a standard scaler to the training data then trains sampler
-        
-        trains a variational autoencoder on the training data
         """
-        self.ss = SS()
-        self.ss.fit(Xtrain[ytrain==self.minority_class_id])
+        Fits a vae oversampler
+        
+        Arguments:
+            Xtrain: training data
+            ytrain: training labels
+            validation_data = (Xtest,ytest) 
+                optional
+            variational autoencoder kwargs: passed to keras
+        
+        Returns: none
+        """
         if validation_data is not None:
             Xtest,ytest = validation_data
-            self.variational_autoencoder(self.ss.transform(Xtrain[ytrain==self.minority_class_id]),
-             x_test = self.ss.transform(Xtest[ytest==self.minority_class_id]),**vae_kwargs)
+        num_samples_to_generate = max(Xtrain[ytrain != self.minority_class_id].shape[0]\
+                                      - Xtrain[ytrain ==self.minority_class_id].shape[0],100)
+        if self.rescale:
+            self.ss = SS()
+            self.ss.fit(Xtrain[ytrain==self.minority_class_id])
+            X = self.ss.transform(Xtrain[ytrain==self.minority_class_id])
+            if validation_data is not None:
+                x_test = self.ss.transform(Xtest[ytest==self.minority_class_id])
         else:
-            self.variational_autoencoder(self.ss.transform(Xtrain[ytrain==self.minority_class_id]),**vae_kwargs)
-        return
+            X = Xtrain[ytrain==self.minority_class_id]
+            if validation_data is not None:
+                x_test = Xtest[ytest==self.minority_class_id]
+        if validation_data is not None:
+            self.build_train(X,x_test = x_test,**vae_kwargs)
+        else:
+            self.build_train(X,**vae_kwargs)
     
     def fit_resample(self,Xtrain,ytrain,validation_data=None,**vae_kwargs):
         """
