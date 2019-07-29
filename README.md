@@ -33,6 +33,7 @@ $ pip install vae_oversampler
  - Comply with PEP8
  - Better error handling
  - Add more options for how many samples to generate
+ - get travis working properly (with TensorFlow)
 
 License
 ----
