@@ -1,3 +1,4 @@
+
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
@@ -147,7 +148,7 @@ class VAEOversampler:
         else:
             self.build_train(X, **vae_kwargs)
 
-    def fit_resample(self, Xtrain, ytrain, validation_data=None, **vae_kwargs):
+    def fit_resample(self, Xtrain, ytrain, validation_data=None, sampling_strategy=1, **vae_kwargs):
         """
         Fits a vae oversampler and returns resampled dataset
 
@@ -156,6 +157,9 @@ class VAEOversampler:
             ytrain: training labels
             validation_data = (Xtest,ytest)
                 optional
+            sampling_strategy: (N_M - N_m) * sampling_strategy
+            	N_M: number of instances of majority class
+            	N_n: number of instances of minority class
             variational autoencoder kwargs: passed to keras
 
         Returns:
@@ -164,12 +168,10 @@ class VAEOversampler:
         """
         if validation_data is not None:
             Xtest, ytest = validation_data
-        num_samples_to_generate = max(Xtrain
-                                      [ytrain != self.minority_class_id]
-                                      .shape[0]
-                                      - Xtrain
-                                      [ytrain == self.minority_class_id]
-                                      .shape[0], 100)
+        num_samples_to_generate = max(int((Xtrain[ytrain != self.minority_class_id].shape[0]
+                                      - Xtrain[ytrain == self.minority_class_id].shape[0])
+                                      * sampling_strategy), 
+                                      100)
         if self.rescale:
             self.ss = SS()
             self.ss.fit(Xtrain[ytrain == self.minority_class_id])
@@ -199,3 +201,39 @@ class VAEOversampler:
         X_all = np.concatenate((Xtrain, oversampled_X))
         y_all = np.concatenate((ytrain, oversampled_y))
         return(X_all, y_all)
+
+    def resample(self, Xtrain, ytrain, sampling_strategy=1, **vae_kwargs):
+        """
+        Generates samples from vae model and returns resampled dataset
+
+        Arguments:
+            Xtrain: training data
+            ytrain: training labels
+            sampling_strategy: (N_M - N_m) * sampling_strategy
+            	N_M: number of instances of majority class
+            	N_n: number of instances of minority class
+            variational autoencoder kwargs: passed to keras
+
+        Returns:
+            Xres,yres: resampled data and labels.
+            attempts to balance the dataset to 50% minority class
+        """
+        num_samples_to_generate = max(int((Xtrain[ytrain != self.minority_class_id].shape[0]
+                                      - Xtrain[ytrain == self.minority_class_id].shape[0])
+                                      * sampling_strategy), 
+                                      100)
+
+        z_sample = np.random.normal(0, 1,
+                                    (num_samples_to_generate,
+                                     self.latent_dim))
+        outputs = self.decoder.predict(z_sample)
+        if self.rescale:
+            oversampled_X = self.ss.inverse_transform(outputs)
+        else:
+            oversampled_X = outputs
+        oversampled_y = np.ones(num_samples_to_generate)\
+            * self.minority_class_id
+        X_all = np.concatenate((Xtrain, oversampled_X))
+        y_all = np.concatenate((ytrain, oversampled_y))
+        return(X_all, y_all)
+
