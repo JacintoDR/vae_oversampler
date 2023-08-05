@@ -16,12 +16,13 @@ class VAEOversampler:
     """
 
     def __init__(self, epochs=10, intermediate_dim=12,
-                 weights=None, batch_size=64,
+                 weights=None, batch_size=64, original_dim=None,
                  latent_dim=1, minority_class_id=1,
                  rescale=False, verbose=True,
                  random_state=None):
         self.epochs = epochs
         self.batch_size = batch_size
+        self.original_dim = original_dim
         self.intermediate_dim = intermediate_dim
         self.weights = weights
         self.latent_dim = latent_dim
@@ -38,8 +39,18 @@ class VAEOversampler:
                 np.random.seed(None)
                 self.random_state = None
 
+    def get_weights(self):
+        return self.vae.get_weights()
+
+    def set_weights(self, parameters):
+        self.vae.set_weights(parameters)
+
+    def save_weights(self, weights):
+        if weights:
+            self.vae.save_weights(weights)
+
     def sampling(self, args):
-        """Reparameterization trick by sampling fr an isotropic unit Gaussian.
+        """Reparameterization trick by sampling for an isotropic unit Gaussian.
 
         # Arguments
             args (tensor): mean and log of variance of Q(z|X)
@@ -53,6 +64,55 @@ class VAEOversampler:
         dim = K.int_shape(z_mean)[1]
         epsilon = K.random_normal(shape=(batch, dim))
         return z_mean + K.exp(0.5 * z_log_var) * epsilon
+
+    def build(self, *args, **kwargs):
+        """
+        Builds a variational autoencoder using Keras
+            and then compiles
+
+        #Returns
+            none.
+            sets self.vae, self.encoder, and self.decoder
+        """
+        if self.original_dim is None:
+            print("especify original_dim parameter")
+        else:
+            original_dim = self.original_dim
+            input_shape = (original_dim, )
+            inputs = Input(shape=input_shape, name='encoder_input')
+            x = Dense(self.intermediate_dim, activation='relu')(inputs)
+            z_mean = Dense(self.latent_dim, name='z_mean')(x)
+            z_log_var = Dense(self.latent_dim, name='z_log_var')(x)
+            z = Lambda(self.sampling,
+                       output_shape=(self.latent_dim, ),
+                       name='z')([z_mean, z_log_var])
+            encoder = Model(inputs, [z_mean, z_log_var, z], name='encoder')
+            if self.verbose:
+                encoder.summary()
+            latent_inputs = Input(shape=(self.latent_dim, ), name='z_sampling')
+            x = Dense(self.intermediate_dim, activation='relu')(latent_inputs)
+            outputs = Dense(original_dim, activation='sigmoid')(x)
+            decoder = Model(latent_inputs, outputs, name='decoder')
+            if self.verbose:
+                decoder.summary()
+            outputs = decoder(encoder(inputs)[2])
+            self.vae = Model(inputs, outputs, name='vae_mlp')
+            reconstruction_loss = mse(inputs, outputs)
+            reconstruction_loss *= original_dim
+            kl_loss = 1 + z_log_var - K.square(z_mean) - K.exp(z_log_var)
+            kl_loss = K.sum(kl_loss, axis=-1)
+            kl_loss *= -0.5
+            vae_loss = K.mean(reconstruction_loss + kl_loss)
+            self.vae.add_loss(vae_loss)
+            self.vae.compile(optimizer='adam')
+            if self.verbose:
+                self.vae.summary()
+            if self.weights:
+                self.vae.load_weights(self.weights)
+
+            self.encoder = encoder
+            self.decoder = decoder
+        return
 
     def build_train(self, x_train, x_test=None,
                     *args, **kwargs):
@@ -102,20 +162,21 @@ class VAEOversampler:
             self.vae.load_weights(self.weights)
         else:
             if x_test is not None:
-                self.vae.fit(x_train,
+                hist = self.vae.fit(x_train,
                              epochs=self.epochs,
                              batch_size=self.batch_size,
                              validation_data=(x_test, None),
                              verbose=self.verbose)
             else:
-                self.vae.fit(x_train,
+                hist = self.vae.fit(x_train,
                              epochs=self.epochs,
                              batch_size=self.batch_size,
                              verbose=self.verbose)
-            self.vae.save_weights('vae.h5')
+            #self.vae.save_weights('vae.h5')
         self.encoder = encoder
         self.decoder = decoder
-        return
+
+        return hist
 
     def fit(self, Xtrain, ytrain, validation_data=None, **vae_kwargs):
         """
@@ -144,9 +205,11 @@ class VAEOversampler:
             if validation_data is not None:
                 x_test = Xtest[ytest == self.minority_class_id]
         if validation_data is not None:
-            self.build_train(X, x_test=x_test, **vae_kwargs)
+            hist = self.build_train(X, x_test=x_test, **vae_kwargs)
         else:
-            self.build_train(X, **vae_kwargs)
+            hist = self.build_train(X, **vae_kwargs)
+
+        return hist
 
     def fit_resample(self, Xtrain, ytrain, validation_data=None, sampling_strategy=1, **vae_kwargs):
         """
@@ -159,7 +222,7 @@ class VAEOversampler:
                 optional
             sampling_strategy: (N_M - N_m) * sampling_strategy
             	N_M: number of instances of majority class
-            	N_n: number of instances of minority class
+            	N_m: number of instances of minority class
             variational autoencoder kwargs: passed to keras
 
         Returns:
@@ -211,7 +274,7 @@ class VAEOversampler:
             ytrain: training labels
             sampling_strategy: (N_M - N_m) * sampling_strategy
             	N_M: number of instances of majority class
-            	N_n: number of instances of minority class
+            	N_m: number of instances of minority class
             variational autoencoder kwargs: passed to keras
 
         Returns:
@@ -237,3 +300,21 @@ class VAEOversampler:
         y_all = np.concatenate((ytrain, oversampled_y))
         return(X_all, y_all)
 
+
+    def evaluate(self, Xtest=None, ytest=None, batch_size=1, **kwargs):
+        """
+        Evaluates a vae oversampler
+
+        Arguments:
+            Xtest: test data (optional)
+            ytest: test labels (optional)
+            variational autoencoder kwargs: passed to keras
+
+        Returns: evaluation
+        """
+        if Xtest is not None:
+            loss = self.vae.evaluate(Xtest, ytest, batch_size)
+        else:
+            loss, acc = self.vae.evaluate()
+
+        return loss
